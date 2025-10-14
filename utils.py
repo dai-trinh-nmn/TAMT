@@ -78,7 +78,7 @@ def load_model(model, dir):
 
     # load finetuned model
     model_dict = model.state_dict()
-    file_dict = torch.load(dir, weights_only=False)['state']
+    file_dict = torch.load(dir, weights_only=False)['module']
     file_dict = {k: v for k, v in file_dict.items() if k in model_dict}
     model_dict.update(file_dict)
     model.load_state_dict(model_dict)
