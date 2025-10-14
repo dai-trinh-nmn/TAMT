@@ -86,7 +86,7 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', default=100, type=int, help='Stopping epoch')
     parser.add_argument('--gpu', default='0', help='gpu id')
 
-    parser.add_argument('--dataset', default='mini_imagenet', choices=['Rareact2','d2iving48','Rareact', 'k400','ucf101','hmdb51','SSv2Full','SSv2Small','tiered_imagenet', 'diving48'])
+    parser.add_argument('--dataset', default='mini_imagenet', choices=['Rareact2','kinetics400_mini','d2iving48','Rareact', 'k400','ucf101','hmdb51','SSv2Full','SSv2Small','tiered_imagenet', 'diving48'])
     parser.add_argument('--data_path', type=str, help='dataset path')
 
     parser.add_argument('--model', default='ResNet12', choices=['ResNet12', 'ResNet18', 'VideoMAENormal','VideoMAES','VideoMAES2','VideoMAEB','VideoMAE'])
@@ -123,6 +123,11 @@ if __name__ == '__main__':
         val_file = 'val.json'
         json_file_read = True
         params.num_classes = 64
+    elif params.dataset == 'kinetics400_mini':
+        base_file = 'base.json'
+        val_file = 'val.json'
+        json_file_read = True
+        params.num_classes = 200
     elif params.dataset == 'Rareact2':
         base_file = 'base.json'
         val_file = 'val.json'
