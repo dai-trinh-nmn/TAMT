@@ -65,20 +65,20 @@ def load_model(model, dir):
     # load pretrained model of SSL
     if dir =='/hd1/wyl/model/112vit-s-woSupervisecheckpoint-399.pth':
         model_dict = model.state_dict()
-        file_dict = torch.load(dir)['model']
+        file_dict = torch.load(dir, weights_only=False)['model']
         model.feature.load_state_dict(file_dict, strict=False)
         return model
 
     # load pretrained model of SL
     if dir == '/hd1/wyl/model/112112vit-s-140epoch.pt' or dir =='/hd1/wyl/model/vit-s-120epoch.pt' or dir =='/hd1/wyl/model/112112vit-s-120epoch.pt':
         model_dict = model.state_dict()
-        file_dict = torch.load(dir)['module']
+        file_dict = torch.load(dir, weights_only=False)['module']
         model.feature.load_state_dict(file_dict, strict=False)
         return model
 
     # load finetuned model
     model_dict = model.state_dict()
-    file_dict = torch.load(dir)['state']
+    file_dict = torch.load(dir, weights_only=False)['state']
     file_dict = {k: v for k, v in file_dict.items() if k in model_dict}
     model_dict.update(file_dict)
     model.load_state_dict(model_dict)
