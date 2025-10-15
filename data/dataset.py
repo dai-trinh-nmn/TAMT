@@ -12,7 +12,7 @@ from . import video_transforms, volume_transforms
 from .loader import get_image_loader, get_video_loader
 from .random_erasing import RandomErasing
 
-# (Arg2, spatial_sampling, tensor_normalize)
+# --- CÁC HÀM VÀ LỚP GỐC VẪN GIỮ NGUYÊN ---
 
 class Arg2():
     def __init__(self):
@@ -52,7 +52,7 @@ def tensor_normalize(tensor, mean, std):
     tensor = tensor / std
     return tensor
 
-# --- LỚP VideoClsDataset ĐÃ ĐƯỢC SỬA LỖI ---
+# --- LỚP VideoClsDataset ĐÃ SỬA LỖI VÒNG LẶP VÔ HẠN ---
 
 class VideoClsDataset():
     def __init__(self, image_size, samples, anno_path='', data_root='', mode='train', clip_len=1, frame_sample_rate=2, crop_size=224, short_side_size=256, new_height=256, new_width=340, keep_aspect_ratio=True, num_segment=16, num_crop=1, test_num_segment=10, test_num_crop=3, sparse_sample=False):
@@ -65,7 +65,6 @@ class VideoClsDataset():
         args = Arg2(); args.input_size = self.image_size; scale_t = 1; sample = self.samples
         buffer = self.load_video(sample, sample_rate_scale=scale_t)
         
-        # === SỬA LỖI VÒNG LẶP VÔ HẠN TẠI ĐÂY ===
         if len(buffer) == 0:
             raise IOError(f"Could not load video buffer for {sample}")
         
@@ -92,6 +91,7 @@ class VideoClsDataset():
         try: vr = self.video_loader(fname)
         except Exception as e: print(f"Failed to load video from {fname} with error {e}!"); return []
         length = len(vr)
+        # ... (phần còn lại của hàm load_video giữ nguyên) ...
         if self.mode == 'test':
             if self.sparse_sample:
                 tick = length / float(self.num_segment); all_index = []
@@ -111,31 +111,128 @@ class VideoClsDataset():
             index = index + i * seg_len; all_index.extend(list(index))
         all_index = all_index[::int(sample_rate_scale)]; vr.seek(0); buffer = vr.get_batch(all_index).asnumpy(); return buffer
 
+# --- CÁC LỚP DATASET GỐC ĐƯỢC GIỮ LẠI ĐỂ TRÁNH LỖI IMPORT ---
+
+class SimpleDataset:
+    def __init__(self, data_path, data_file_list, transform, target_transform=identity):
+        label, data, k = [], [], 0
+        data_dir_list = data_file_list.replace(" ","").split(',')
+        for data_file in data_dir_list:
+            img_dir = data_path + '/' + data_file
+            for i in os.listdir(img_dir):
+                file_dir = os.path.join(img_dir, i)
+                for j in os.listdir(file_dir):
+                    data.append(file_dir + '/' + j)
+                    label.append(k)
+                k += 1
+        self.data, self.label, self.transform, self.target_transform = data, label, transform, target_transform
+
+    def __getitem__(self, i):
+        img = Image.open(os.path.join(self.data[i])).convert('RGB')
+        img = self.transform(img)
+        target = self.target_transform(self.label[i] - min(self.label))
+        return img, target
+
+    def __len__(self):
+        return len(self.label)
+
+class SetDataset:
+    def __init__(self, data_path, data_file_list, batch_size, transform):
+        label, data, k = [], [], 0
+        data_dir_list = data_file_list.replace(" ","").split(',')
+        for data_file in data_dir_list:
+            img_dir = data_path + '/' + data_file
+            for i in os.listdir(img_dir):
+                file_dir = os.path.join(img_dir, i)
+                for j in os.listdir(file_dir):
+                    data.append(file_dir + '/' + j)
+                    label.append(k)
+                k += 1
+        self.data, self.label, self.transform = data, label, transform
+        self.cl_list = np.unique(self.label).tolist()
+        self.sub_meta = {cl: [] for cl in self.cl_list}
+        for x, y in zip(self.data, self.label): self.sub_meta[y].append(x)
+        self.sub_dataloader = []
+        sub_data_loader_params = dict(batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=False)
+        for cl in self.cl_list:
+            sub_dataset = SubDataset(self.sub_meta[cl], cl, transform=transform)
+            self.sub_dataloader.append(torch.utils.data.DataLoader(sub_dataset, **sub_data_loader_params))
+
+    def __getitem__(self, i):
+        return next(iter(self.sub_dataloader[i]))
+
+    def __len__(self):
+        return len(self.cl_list)
+
+class SubDataset:
+    def __init__(self, sub_meta, cl, transform=transforms.ToTensor(), target_transform=identity):
+        self.sub_meta, self.cl, self.transform, self.target_transform = sub_meta, cl, transform, target_transform
+
+    def __getitem__(self, i):
+        img = Image.open(os.path.join(self.sub_meta[i])).convert('RGB')
+        img = self.transform(img)
+        target = self.target_transform(self.cl)
+        return img, target
+
+    def __len__(self):
+        return len(self.sub_meta)
+
+class SimpleDataset_JSON:
+    def __init__(self, data_path, data_file, transform, target_transform=identity):
+        with open(os.path.join(data_path, data_file), 'r') as f: self.meta = json.load(f)
+        self.transform, self.target_transform = transform, target_transform
+
+    def __getitem__(self, i):
+        img = Image.open(os.path.join(self.meta['image_names'][i])).convert('RGB')
+        img = self.transform(img)
+        target = self.target_transform(self.meta['image_labels'][i])
+        return img, target
+
+    def __len__(self):
+        return len(self.meta['image_names'])
+
+
 # --- LỚP SetDataset_JSON MỚI, ĐÃ TÁI CẤU TRÚC ĐỂ GIẢI QUYẾT LỖI HẾT RAM ---
 class SetDataset_JSON:
     def __init__(self, image_size, data_path, data_file, batch_size, transform):
-        self.image_size = image_size
-        self.batch_size = batch_size # batch_size ở đây là n_shot + n_query
-        self.transform = transform
-        
+        self.image_size = image_size; self.batch_size = batch_size; self.transform = transform
         json_path = os.path.join(data_path, data_file)
-        with open(json_path, 'r') as f:
-            self.meta = json.load(f)
-
+        with open(json_path, 'r') as f: self.meta = json.load(f)
         self.cl_list = sorted(list(np.unique(self.meta['image_labels'])))
         self.class_to_paths = {cl: [] for cl in self.cl_list}
-        
-        # Nhóm các đường dẫn video theo class label
-        for path, label in zip(self.meta['image_names'], self.meta['image_labels']):
-            self.class_to_paths[label].append(path)
+        for path, label in zip(self.meta['image_names'], self.meta['image_labels']): self.class_to_paths[label].append(path)
 
     def __getitem__(self, i):
-        # 'i' là class index được cung cấp bởi EpisodicBatchSampler
         target_class = self.cl_list[i]
-        
         video_paths_for_class = self.class_to_paths[target_class]
-        
-        # Ngẫu nhiên chọn ra 'batch_size' (n_shot + n_query) video từ class đó
         sampled_paths = random.choices(video_paths_for_class, k=self.batch_size)
-        
-        videos
+        videos = []
+        for path in sampled_paths:
+            # Nếu đang ở Giai đoạn MAP, 'path' là đường dẫn video thô
+            if path.endswith('.mp4') or path.endswith('.avi'):
+                 video_loader = VideoClsDataset(self.image_size, samples=path)
+                 video_tensor = video_loader.getitem()
+            # Nếu đang ở Giai đoạn REDUCE, 'path' là đường dẫn tensor .pt
+            else:
+                 video_tensor = torch.load(path)
+            videos.append(video_tensor)
+        batch_videos = torch.stack(videos)
+        targets = torch.tensor(target_class) 
+        return batch_videos, targets
+
+    def __len__(self):
+        return len(self.cl_list)
+
+# Lớp rỗng để tránh lỗi import
+class SubDataset_JSON:
+    def __init__(self, *args, **kwargs): pass
+    def __getitem__(self, i): pass
+    def __len__(self): return 0
+    
+# --- LỚP SAMPLER GỐC ---
+class EpisodicBatchSampler(object):
+    def __init__(self, n_classes, n_way, n_episodes):
+        self.n_classes = n_classes; self.n_way = n_way; self.n_episodes = n_episodes
+    def __len__(self): return self.n_episodes
+    def __iter__(self):
+        for i in range(self.n_episodes): yield torch.randperm(self.n_classes)[:self.n_way]
