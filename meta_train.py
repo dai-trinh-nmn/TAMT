@@ -124,8 +124,8 @@ if __name__ == '__main__':
         json_file_read = True
         params.num_classes = 64
     elif params.dataset == 'kinetics400_mini':
-        base_file = 'base.json'
-        val_file = 'val.json'
+        base_file = 'preprocessed_base.json'
+        val_file = 'preprocessed_val.json'
         json_file_read = True
         params.num_classes = 200
     elif params.dataset == 'Rareact2':
