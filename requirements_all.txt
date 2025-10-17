@@ -80,7 +80,6 @@ scipy
 setuptools
 simplejson
 six
-sklearn
 tabulate
 tensorboard
 tensorboard-plugin-wit
