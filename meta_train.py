@@ -179,6 +179,10 @@ if __name__ == '__main__':
     elif params.method == 'meta_deepbdc':
         model = MetaDeepBDC(params, model_dict[params.model], **train_few_shot_params)
 
+    if torch.cuda.device_count() > 1 and len(params.gpu.split(',')) > 1:
+      print("Activating DataParallel for", torch.cuda.device_count(), "GPUs!")
+      model = nn.DataParallel(model)
+        
     model = model.cuda()
 
     # model save path
