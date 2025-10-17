@@ -345,16 +345,24 @@ class MetaTemplate(nn.Module):
         pass
 
     @abstractmethod
-    def set_forward_loss(self, x):
-        pass
+    def forward(self, x):
+        self.n_way = x.size(0)
+        self.n_query = x.size(1) - self.n_support
+
+        y_query = torch.from_numpy(np.repeat(range(self.n_way), self.n_query)).cuda()
+
+        scores = self.set_forward(x)
+        loss = F.cross_entropy(scores, y_query)
+
+        y_label = np.repeat(range(self.n_way), self.n_query)
+        _, topk_labels = scores.data.topk(1, 1, True, True)
+        correct_this = np.sum(topk_labels.cpu().numpy()[:, 0] == y_label)
+
+        return loss, torch.tensor(float(correct_this)).cuda()
 
     @abstractmethod
     def feature_forward(self, x):
         pass
-
-    def forward(self, x):
-        out = self.feature.forward(x)
-        return out
 
     def parse_feature(self, x, is_feature):
         x = Variable(x.cuda())
@@ -484,46 +492,23 @@ class MetaTemplate(nn.Module):
         return float(top1_correct), len(y_query)
 
     def train_loop(self, epoch, train_loader, optimizer):
-
-        print_freq = 30
-        avg_loss = 0
-        acc_all = []
-        iter_num = len(train_loader)
-        for i, (x, _) in enumerate(train_loader):
-            self.n_query = x.size(1) - self.n_support
-            if self.change_way:
-                self.n_way = x.size(0)
-            optimizer.zero_grad()
-            correct_this, count_this, loss, _ = self.set_forward_loss(x)
-            acc_all.append(correct_this / count_this * 100)
-            loss.backward()
-            optimizer.step()
-            avg_loss = avg_loss + loss.item()
-
-            if i % print_freq == 0:
-                print('Epoch {:d} | Batch {:d}/{:d} | Loss {:f}'.format(epoch, i, len(train_loader),
-                                                                        avg_loss / float(i + 1)))
-        acc_all = np.asarray(acc_all)
-        acc_mean = np.mean(acc_all)
-        return avg_loss / iter_num, acc_mean
+        pass
 
     def test_loop(self, test_loader, record=None):
         acc_all = []
-        avg_loss = 0
+        avg_loss = 0.0
         iter_num = len(test_loader)
         with torch.no_grad():
             for i, (x, _) in enumerate(test_loader):
-                self.n_query = x.size(1) - self.n_support
-                if self.change_way:
-                    self.n_way = x.size(0)
-                correct_this, count_this, loss, _ = self.set_forward_loss(x)
-                acc_all.append(correct_this / count_this * 100)
-                avg_loss = avg_loss + loss.item()
+                # self.n_way và self.n_query sẽ được cập nhật trong hàm forward
+                loss, correct_this_tensor = self.forward(x)
+                count_this = self.n_way * self.n_query
+                acc_all.append(correct_this_tensor.item() / count_this * 100)
+                avg_loss += loss.item()
         acc_all = np.asarray(acc_all)
         acc_mean = np.mean(acc_all)
         acc_std = np.std(acc_all)
         print('%d Test Acc = %4.2f%% +- %4.2f%%' % (iter_num, acc_mean, 1.96 * acc_std / np.sqrt(iter_num)))
-
         return avg_loss / iter_num, acc_mean
 
 

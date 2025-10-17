@@ -7,6 +7,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 import time
 import os
 import glob
+import argparse
 
 from data.datamgr import SetDataManager
 
@@ -16,62 +17,75 @@ from utils import *
 
 
 def train(params, base_loader, val_loader, model, stop_epoch):
-
     trlog = {}
     trlog['args'] = vars(params)
-    trlog['train_loss'] = []
-    trlog['val_loss'] = []
-    trlog['train_acc'] = []
-    trlog['val_acc'] = []
-    trlog['max_acc'] = 0.0
-    trlog['max_acc_epoch'] = 0
+    trlog['train_loss'], trlog['val_loss'], trlog['train_acc'], trlog['val_acc'] = [], [], [], []
+    trlog['max_acc'], trlog['max_acc_epoch'] = 0.0, 0
 
-    # SGD and Adam have similar effects
-    # optimizer = torch.optim.SGD(model.parameters(), lr=params.lr, momentum=0.9, nesterov=True, weight_decay=5e-4)
     optimizer = torch.optim.Adam(model.parameters(), lr=params.lr, weight_decay=5e-4)
-
-    # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=0)
-    # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=params.milestones, gamma=params.gamma)
-    
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=80, eta_min=0.0000001)#余弦衰减
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=80, eta_min=0.0000001)
 
     if not os.path.isdir(params.checkpoint_dir):
         os.makedirs(params.checkpoint_dir)
 
-    for epoch in range(0, stop_epoch):
-        start = time.time()
+    for epoch in range(stop_epoch):
+        start_time = time.time()
         model.train()
-        trainObj, top1 = model.module.train_loop(epoch, base_loader, optimizer)
+
+        avg_loss = 0
+        total_correct = 0
+        total_count = 0
+
+        for i, (x, _) in enumerate(base_loader):
+            x = x.cuda()
+            optimizer.zero_grad()
+
+            loss, correct_this_batch = model(x)
+
+            loss = loss.mean()
+
+            loss.backward()
+            optimizer.step()
+
+            avg_loss += loss.item()
+            total_correct += correct_this_batch.sum().item()
+            total_count += x.size(0) * params.n_query
+
+        train_loss = avg_loss / len(base_loader)
+        train_acc = (total_correct / total_count) * 100 if total_count != 0 else 0
 
         model.eval()
-        valObj, acc = model.test_loop(val_loader)
-        if acc > trlog['max_acc']:
+        model_to_eval = model.module if isinstance(model, nn.DataParallel) else model
+        val_loss, val_acc = model_to_eval.test_loop(val_loader)
+
+        if val_acc > trlog['max_acc']:
             print("best model! save...")
-            trlog['max_acc'] = acc
-            trlog['max_acc_epoch'] = epoch
+            trlog['max_acc'], trlog['max_acc_epoch'] = val_acc, epoch
             outfile = os.path.join(params.checkpoint_dir, 'best_model.tar')
-            torch.save({'epoch': epoch, 'state': model.state_dict()}, outfile)
+            state_to_save = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+            torch.save({'epoch': epoch, 'state': state_to_save}, outfile)
 
         if epoch % params.save_freq == 0:
-            outfile = os.path.join(params.checkpoint_dir, '{:d}.tar'.format(epoch))
-            torch.save({'epoch': epoch, 'state': model.state_dict()}, outfile)
+            outfile = os.path.join(params.checkpoint_dir, f'{epoch}.tar')
+            state_to_save = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+            torch.save({'epoch': epoch, 'state': state_to_save}, outfile)
 
         if epoch == stop_epoch - 1:
-            outfile = os.path.join(params.checkpoint_dir, 'last_model.tar'.format(epoch))
-            torch.save({'epoch': epoch, 'state': model.state_dict()}, outfile)
+            outfile = os.path.join(params.checkpoint_dir, 'last_model.tar')
+            state_to_save = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+            torch.save({'epoch': epoch, 'state': state_to_save}, outfile)
 
-        trlog['train_loss'].append(trainObj)
-        trlog['train_acc'].append(top1)
-        trlog['val_loss'].append(valObj)
-        trlog['val_acc'].append(acc)
+        trlog['train_loss'].append(train_loss)
+        trlog['train_acc'].append(train_acc)
+        trlog['val_loss'].append(val_loss)
+        trlog['val_acc'].append(val_acc)
         torch.save(trlog, os.path.join(params.checkpoint_dir, 'trlog'))
-
         lr_scheduler.step()
 
-        print("This epoch use %.2f minutes" % ((time.time() - start) / 60))
-        print("train loss is {:.2f}, train acc is {:.2f}".format(trainObj, top1))
-        print("val loss is {:.2f}, val acc is {:.2f}".format(valObj, acc))
-        print("model best acc is {:.2f}, best acc epoch is {}".format(trlog['max_acc'], trlog['max_acc_epoch']))
+        print(f"Epoch {epoch+1}/{stop_epoch} | Time {(time.time() - start_time) / 60:.2f} min")
+        print(f"  Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
+        print(f"  Val Loss:   {val_loss:.4f} | Val Acc:   {val_acc:.2f}%")
+        print(f"  Best Val Acc: {trlog['max_acc']:.2f}% at epoch {trlog['max_acc_epoch']}")
 
     return model
 
@@ -180,8 +194,8 @@ if __name__ == '__main__':
         model = MetaDeepBDC(params, model_dict[params.model], **train_few_shot_params)
 
     if torch.cuda.device_count() > 1 and len(params.gpu.split(',')) > 1:
-      print("Activating DataParallel for", torch.cuda.device_count(), "GPUs!")
-      model = nn.DataParallel(model)
+        print(f"Activating DataParallel for {torch.cuda.device_count()} GPUs!")
+        model = nn.DataParallel(model)
         
     model = model.cuda()
 
