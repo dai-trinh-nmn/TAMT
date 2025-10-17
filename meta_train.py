@@ -41,7 +41,7 @@ def train(params, base_loader, val_loader, model, stop_epoch):
     for epoch in range(0, stop_epoch):
         start = time.time()
         model.train()
-        trainObj, top1 = model.train_loop(epoch, base_loader, optimizer)
+        trainObj, top1 = model.module.train_loop(epoch, base_loader, optimizer)
 
         model.eval()
         valObj, acc = model.test_loop(val_loader)
