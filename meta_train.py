@@ -37,6 +37,9 @@ def train(params, base_loader, val_loader, model, stop_epoch):
         total_count = 0
 
         for i, (x, _) in enumerate(base_loader):
+            if (i + 1) % 50 == 0: # In log sau mỗi 50 episode
+                print(f'  - Epoch [{epoch+1}/{stop_epoch}], Episode [{i+1}/{len(base_loader)}]...')
+                
             x = x.cuda()
             optimizer.zero_grad()
 
