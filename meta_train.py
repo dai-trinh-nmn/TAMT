@@ -17,10 +17,20 @@ def build_ema_state(model):
 
 @torch.no_grad()
 def ema_update(model, ema_state, ema_decay):
-    mstate = model.state_dict()
-    for k in ema_state.keys():
-        if k in mstate:
-            ema_state[k].mul_(ema_decay).add_(mstate[k].detach(), alpha=1.0 - ema_decay)
+    if ema_decay >= 1.0:
+        return
+    with torch.no_grad():
+        mstate = model.state_dict()
+        for k, v in mstate.items():
+            if k not in ema_state:
+                ema_state[k] = v.detach().clone()
+                continue
+            if v.dtype in (torch.float16, torch.float32, torch.float64, torch.bfloat16):
+                if ema_state[k].dtype != v.dtype:
+                    ema_state[k] = ema_state[k].to(v.dtype)
+                ema_state[k].mul_(ema_decay).add_(v.detach(), alpha=1.0 - ema_decay)
+            else:
+                ema_state[k] = v.detach().clone()
 
 def swap_to_ema(model, ema_state):
     """Load EMA weights into model; return backup to restore later."""
