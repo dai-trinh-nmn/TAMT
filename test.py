@@ -85,10 +85,6 @@ elif params.method == 'meta_deepbdc':
 elif params.method == 'stl_deepbdc':
     model = STLDeepBDC(params, model_dict[params.model], **novel_few_shot_params)
 
-if torch.cuda.device_count() > 1 and len(params.gpu.split(',')) > 1:
-    print(f"Activating DataParallel for {torch.cuda.device_count()} GPUs!")
-    model = nn.DataParallel(model)
-
 # model save path
 model = model.cuda()
 model.eval()
@@ -96,6 +92,10 @@ model.eval()
 print(params.model_path)
 model_file = os.path.join(params.model_path)
 model = load_model(model, model_file)
+
+if torch.cuda.device_count() > 1 and len(params.gpu.split(',')) > 1:
+    print(f"Activating DataParallel for {torch.cuda.device_count()} GPUs!")
+    model = nn.DataParallel(model)
 
 print(params)
 iter_num = params.test_n_episode
