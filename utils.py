@@ -5,6 +5,7 @@ import argparse
 import network.resnet as resnet
 import network.VideoMAE as VideoMAE
 import torch
+import torch.nn as nn
 import random
 from weight_loaders import weight_loader_fn_dict
 
@@ -82,6 +83,39 @@ def load_model(model, dir):
     file_dict = {k: v for k, v in file_dict.items() if k in model_dict}
     model_dict.update(file_dict)
     model.load_state_dict(model_dict)
+    return model
+
+def load_model_safe(model, ckpt_path, strict=True):
+    ckpt = torch.load(ckpt_path, map_location='cpu')
+
+    state = None
+    for key in ['module', 'state', 'state_dict', 'model']:
+        if isinstance(ckpt, dict) and key in ckpt and isinstance(ckpt[key], dict):
+            state = ckpt[key]
+            break
+
+    if state is None and isinstance(ckpt, dict):
+        if all(isinstance(v, torch.Tensor) for v in ckpt.values()):
+            state = ckpt
+
+    if state is None:
+        raise ValueError(f"Không tìm thấy state_dict trong checkpoint: {ckpt_path}")
+
+    is_dp = isinstance(model, nn.DataParallel)
+    def strip_module(sd):
+        return { (k[7:] if k.startswith('module.') else k): v for k, v in sd.items() }
+
+    if is_dp:
+        if not next(iter(state)).startswith('module.'):
+            model.module.load_state_dict(state, strict=strict)
+        else:
+            model.load_state_dict(state, strict=strict)
+    else:
+        if next(iter(state)).startswith('module.'):
+            state = strip_module(state)
+        model.load_state_dict(state, strict=strict)
+
+    print(f"Loaded checkpoint từ: {ckpt_path}")
     return model
 
 def set_seed(seed):
