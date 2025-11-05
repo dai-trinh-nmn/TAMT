@@ -18,7 +18,7 @@ import tqdm
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--image_size', default=112, type=int, choices=[112, 224])
-parser.add_argument('--dataset', default='mini_imagenet', choices=['Rareact2','Rareact','d2iving48', 'k400','ucf101','hmdb51','tiered_imagenet', 'SSv2Full','SSv2Small','diving48'])
+parser.add_argument('--dataset', default='mini_imagenet', choices=['Rareact2','Rareact','d2iving48','kinetics400_mini','k400','ucf101','hmdb51','tiered_imagenet', 'SSv2Full','SSv2Small','diving48'])
 parser.add_argument('--data_path', type=str)
 parser.add_argument('--model', default='ResNet12', choices=['ResNet12', 'ResNet18', 'VideoMAE','VideoMAES','VideoMAEB','VideoMAES2','VideoMAENormal'])
 parser.add_argument('--method', default='stl_deepbdc', choices=['meta_deepbdc', 'stl_deepbdc', 'stl','protonet', 'good_embed'])
@@ -46,6 +46,9 @@ if params.dataset == 'hmdb51':
         json_file_read = True
 elif params.dataset == 'ucf101':
         novel_file ='novel.json'
+        json_file_read = True
+elif params.dataset == 'kinetics400_mini':
+        novel_file ='preprocessed_novel.json'
         json_file_read = True
 elif params.dataset == 'SSv2Full':
         novel_file ='novel.json'
@@ -82,6 +85,10 @@ elif params.method == 'meta_deepbdc':
 elif params.method == 'stl_deepbdc':
     model = STLDeepBDC(params, model_dict[params.model], **novel_few_shot_params)
 
+if torch.cuda.device_count() > 1 and len(params.gpu.split(',')) > 1:
+    print(f"Activating DataParallel for {torch.cuda.device_count()} GPUs!")
+    model = nn.DataParallel(model)
+
 # model save path
 model = model.cuda()
 model.eval()
@@ -99,6 +106,7 @@ for _ in range(params.test_task_nums):
     tqdm_gen = tqdm.tqdm(novel_loader)
     for _, (x, _) in enumerate(tqdm_gen):
         with torch.no_grad():
+            x = x.cuda(non_blocking=True).float()
             model.n_query = params.n_query
             scores = model.set_forward(x, False)
         if params.method in ['meta_deepbdc', 'protonet']:
