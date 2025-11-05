@@ -85,10 +85,6 @@ elif params.method == 'meta_deepbdc':
 elif params.method == 'stl_deepbdc':
     model = STLDeepBDC(params, model_dict[params.model], **novel_few_shot_params)
 
-if torch.cuda.device_count() > 1 and len(params.gpu.split(',')) > 1:
-    print(f"Activating DataParallel for {torch.cuda.device_count()} GPUs!")
-    model = nn.DataParallel(model)
-
 # model save path
 model = model.cuda()
 model.eval()
@@ -96,6 +92,10 @@ model.eval()
 print(params.model_path)
 model_file = os.path.join(params.model_path)
 model = load_model_safe(model, model_file)
+
+if torch.cuda.device_count() > 1 and len(params.gpu.split(',')) > 1:
+    print(f"Activating DataParallel for {torch.cuda.device_count()} GPUs!")
+    model = nn.DataParallel(model)
 
 print(params)
 iter_num = params.test_n_episode
@@ -107,8 +107,10 @@ for _ in range(params.test_task_nums):
     for _, (x, _) in enumerate(tqdm_gen):
         with torch.no_grad():
             x = x.cuda(non_blocking=True).float()
-            model.n_query = params.n_query
-            scores = model.set_forward(x, False)
+            
+            core = model.module if isinstance(model, torch.nn.DataParallel) else model
+            core.n_query = params.n_query
+            scores = core.set_forward(x, False)
         if params.method in ['meta_deepbdc', 'protonet']:
             pred = scores.data.cpu().numpy().argmax(axis=1)
         else:
